@@ -1,14 +1,23 @@
-# process_video.py
+#!/usr/bin/env python
 import cv2
 import os
 import pandas as pd
+import warnings
 from detect_eye import detect_eye_and_landmarks
+
+warnings.filterwarnings(
+    "ignore",
+    message="`layer.apply` is deprecated and will be removed in a future version."
+)
 
 def process_video(video_path, config_path, output_csv_path):
     """
     Process the input video to extract eye landmarks using DeepLabCut.
-    Saves a CSV with one row per frame containing:
-      frame, time, left/right pupil (x,y), left/right corner (x,y), roll_angle.
+    Every 5 frames, the current results are saved (overwriting any existing file).
+    
+    Output CSV will contain one row per frame with columns:
+      frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y,
+      corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -52,16 +61,24 @@ def process_video(video_path, config_path, output_csv_path):
             "roll_angle": roll_angle
         })
         frame_num += 1
+        
+        # Every 5 frames, overwrite the output CSV with current results.
+        if frame_num % 5 == 0:
+            df = pd.DataFrame(results)
+            df.to_csv(output_csv_path, index=False)
+            print(f"Saved results up to frame {frame_num} to {output_csv_path}")
     
     cap.release()
+    
+    # Final write (in case the last batch is not a multiple of 5)
     df = pd.DataFrame(results)
     df.to_csv(output_csv_path, index=False)
-    print(f"Video processing complete. Results saved to {output_csv_path}")
+    print(f"Video processing complete. Final results saved to {output_csv_path}")
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
-        description="Process a video to extract eye landmarks using DeepLabCut"
+        description="Process a video to extract eye landmarks using DeepLabCut, saving progress every 5 frames."
     )
     parser.add_argument("--video", required=True, help="Path to the input video")
     parser.add_argument("--config", required=True, help="Path to the DLC config.yaml file")
