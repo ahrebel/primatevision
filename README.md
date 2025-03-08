@@ -2,14 +2,14 @@
 
 ![Animated Eyes](https://github.com/user-attachments/assets/0f245b14-ec20-4a11-868a-ae207a7dfa1d)
 
-This repository implements an eye–tracking system for Rhesus macaques (and humans) using **DeepLabCut (DLC)**. The system detects eye landmarks from video frames, maps raw eye coordinates to screen positions (via a trained regression model), and analyzes gaze/fixation patterns during touchscreen interactions.
+This repository implements an eye–tracking system for Rhesus macaques (and humans) using **DeepLabCut (DLC)**. The system detects eye landmarks from video frames, maps raw eye coordinates to screen positions using a trained k–Nearest Neighbors (kNN) regression model, and analyzes gaze/fixation patterns during touchscreen interactions.
 
 > **Key Features:**
 >
 > - **Offline Video Processing:** Analyze pre–recorded trial videos.
 > - **DeepLabCut–Based Landmark Detection:** Use a trained DLC model to detect key eye landmarks (pupils and corners).
-> - **Gaze Mapping:** Use a trained regression model to accurately translate eye coordinates to screen coordinates.
-> - **Visualization:** Generate heatmaps and CSV summaries of time spent looking at each screen region.
+> - **Gaze Mapping (kNN):** Convert eye coordinates to screen coordinates using a kNN regressor trained on calibration data.
+> - **Visualization:** Generate heatmaps and CSV summaries of time spent in each screen region.
 > - **Cross–Platform Support:** Runs on both macOS and Windows (CPU–only supported).
 > - **Optional Head–Pose Estimation:** Includes head roll estimation using facial landmarks.
 
@@ -23,237 +23,192 @@ This repository implements an eye–tracking system for Rhesus macaques (and hum
 4. [Pipeline Overview](#pipeline-overview)  
 5. [Step 1: Extract Eye Landmarks for Calibration](#step-1-extract-eye-landmarks-for-calibration)  
 6. [Step 2: (Optional) Merge Gaze Data with Click Data](#step-2-optional-merge-gaze-data-with-click-data)  
-7. [Step 3: Train the Gaze Mapping Model](#step-3-train-the-gaze-mapping-model)  
+7. [Step 3: Train the kNN Mapping Model](#step-3-train-the-knn-mapping-model)  
 8. [Step 4: Process Experimental Videos (Extract Landmarks)](#step-4-process-experimental-videos-extract-landmarks)  
 9. [Step 5: Analyze Gaze (Generate Heatmaps & Time Spent)](#step-5-analyze-gaze-generate-heatmaps--time-spent)  
-10. [Troubleshooting](#troubleshooting)  
-11. [Future Improvements](#future-improvements)
+10. [Fine-Tuning or Retraining the kNN Model](#step-10-fine-tuning-or-retraining-the-knn-model)  
+11. [Troubleshooting](#troubleshooting)  
+12. [Future Improvements](#future-improvements)
 
 ---
 
 ## 1. Installation and Setup
 
-### Clone the Repository
-
-```bash
-git clone https://github.com/ahrebel/rhesustracking.git
-cd rhesustracking
-```
-
-### Create and Activate Your Python Environment
-
-#### Using Conda (Recommended):
-
-```bash
-conda create -n monkey-gaze-tracker -c conda-forge python=3.8 pytables hdf5 lzo opencv numpy pandas matplotlib scikit-learn scikit-image scipy tqdm statsmodels
-conda activate monkey-gaze-tracker
-```
-
-#### Or, Using pip with a Virtual Environment:
-
-```bash
-python -m venv venv
-source venv/bin/activate   # On Windows use: venv\Scripts\activate
-```
-
-### Install Required Packages
-
-```bash
-pip install -r requirements.txt
-```
-
-#### Additional Dependencies for DeepLabCut:
-
-```bash
-pip install deeplabcut pyyaml tensorflow tensorpack tf-slim 'deeplabcut[gui]'
-```
-
-> **Note:**  
-> If you encounter a `ModuleNotFoundError: No module named 'keras.legacy_tf_layers'` error, run:
-> ```bash
-> pip install --upgrade tensorflow_macos==2.12.0
-> ```
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/ahrebel/rhesustracking.git
+   cd rhesustracking
+   ```
+2. **Set up your Python environment (using Conda is recommended):**
+   ```bash
+   conda create -n monkey-gaze-tracker -c conda-forge python=3.8 pytables hdf5 lzo opencv numpy pandas matplotlib scikit-learn scikit-image scipy tqdm statsmodels
+   conda activate monkey-gaze-tracker
+   ```
+3. **Install required packages:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. **Install additional DeepLabCut dependencies:**
+   ```bash
+   pip install deeplabcut pyyaml tensorflow tensorpack tf-slim 'deeplabcut[gui]'
+   ```
+   > *If you encounter a `ModuleNotFoundError: No module named 'keras.legacy_tf_layers'`, run:*
+   > ```bash
+   > pip install --upgrade tensorflow_macos==2.12.0
+   > ```
+   > *(Adjust for your system as needed.)*
 
 ---
 
 ## 2. Data Preparation
 
-1. **Video Files**  
-   Place your trial videos (e.g., `1.mp4`, `2.mp4`, etc.) in a directory of your choice (for example, `videos/input/`).
+- **Video Files:**  
+  Place your trial videos (e.g., `1.mp4`, `2.mp4`, etc.) in a folder such as `videos/input/`.
 
-2. **(Optional) Touch/Click Event Files**  
-   If you are using additional calibration data from touches or clicks, store them similarly (e.g., `1.csv`, `2.csv`) with columns like `time, screen_x, screen_y` or `time, click_x, click_y`. This step is only necessary if you plan to do a more advanced approach to link each frame’s gaze with a known on‐screen location.
+- **(Optional) Touch/Click Event Files:**  
+  If you use additional calibration data (e.g., from clicks/touches), save them as CSV files with columns like `time, screen_x, screen_y` (or `time, click_x, click_y`).
 
 ---
 
 ## 3. DeepLabCut Model Training
 
 1. **Launch the DLC GUI:**
-
    ```bash
    python -m deeplabcut
    ```
-
-2. **Create a New Project:**
-   - Enter your project name and add your video(s).
-   - Label keypoints such as `left_pupil`, `right_pupil`, `corner_left`, and `corner_right`.
-
+2. **Create a New Project:**  
+   - Enter your project name and add your video(s).  
+   - Label keypoints (e.g., `left_pupil`, `right_pupil`, `corner_left`, `corner_right`).
 3. **Label Frames:**  
-   - Use a diverse set of frames (varying head positions, lighting, etc.).
-
-4. **Train the Network:**  
-   - Use the **"Train Network"** option. For CPU-only systems, consider selecting a lighter model (e.g., `mobilenet_v2_1.0`).
-
-5. **Evaluate the Model:**  
-   - Run **"Evaluate Network"** to verify detection accuracy.
-
-6. **Update Config Path:**  
-   - In your `detect_eye.py` (or similar script), set the path to your DLC project’s `config.yaml` so that it can locate your trained model.
+   Label a diverse set of frames to cover different head positions and lighting.
+4. **Train and Evaluate:**  
+   Train the network (consider lighter models like `mobilenet_v2_1.0` for CPU-only) and evaluate its performance.
+5. **Update Configuration:**  
+   Ensure your scripts (e.g., `detect_eye.py`) point to your DLC project’s `config.yaml`.
 
 ---
 
 ## 4. Pipeline Overview
 
-Below is the recommended workflow:
-
-1. **(Calibration) Process a short calibration video** to extract eye landmarks at known screen positions (or times).  
-2. **(Optional)** Merge the raw gaze data with click data (if your known on‐screen locations are from click events).  
-3. **Train the regression model** that maps eye landmarks → screen coordinates.  
-4. **Process your actual experimental videos** to extract eye landmarks.  
-5. **Analyze gaze** using your trained regression model, producing heatmaps and a CSV of time spent in each screen section.
+1. **Calibration:** Extract eye landmarks from a calibration video.
+2. **(Optional) Merge Data:** Merge gaze landmarks with click/touch event data to form a calibration CSV.
+3. **Mapping Model Training:** Train a kNN regression model to map eye landmarks to screen coordinates.
+4. **Experimental Processing:** Process experimental videos to extract raw landmarks.
+5. **Gaze Analysis:** Convert eye landmarks to screen coordinates using the kNN model, divide the screen into regions, and generate heatmaps and summaries.
 
 ---
 
 ## 5. Step 1: Extract Eye Landmarks for Calibration
 
-You need a **calibration video** in which you know the actual screen coordinates you want the subject to look at (for example, a few targets in known locations or times).
-
-1. **Record or gather a calibration video** showing the subject fixating on 4–9 known points on the screen.  
-2. **Run `process_video.py`** on this calibration video to extract raw landmarks:
-
-   ```bash
-   python src/process_video.py \
-       --video /path/to/calibration_video.mp4 \
-       --config /path/to/dlc_config.yaml \
-       --output calibration_landmarks.csv
-   ```
-
-   - This outputs a CSV with columns like `frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle, ...`
+Run the video processing script to extract eye landmarks:
+```bash
+python src/process_video.py --video /path/to/calibration_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv
+```
+Example:
+```bash
+python src/process_video.py --video /Users/anthonyrebello/rhesustracking/videos/input/3.mp4 --config /Users/anthonyrebello/rhesustracking/eyetracking-ahrebel-2025-02-26/config.yaml --output landmarks_output.csv
+```
+The output CSV should contain columns such as:  
+`frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle`.
 
 ---
 
-## 6. Step 2: Merge Gaze Data with Click Data
+## 6. Step 2: (Optional) Merge Gaze Data with Click Data
 
-If your known screen coordinates come from **click events** (or touches) at specific times, you can merge them with the raw gaze data (landmarks) by matching timestamps. 
-
-#### Usage
+If you have click/touch data with known screen coordinates, merge them with your gaze data:
 ```bash
-python src/combine_gaze_click.py \
-  --gaze_csv calibration_landmarks.csv \
-  --click_file calibration_clicks.csv \
-  --output_csv calibration_data_for_training.csv \
-  --max_time_diff 0.1
+python src/combine_gaze_click.py --gaze_csv landmarks_output.csv --click_file /path/to/your_click_file.csv --output_csv calibration_data_for_training.csv --max_time_diff 0.1
 ```
+After merging, your calibration CSV should include:
+```
+time, left_corner_x, left_corner_y, right_corner_x, right_corner_y,
+left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, screen_x, screen_y
+```
+*(The script renames and organizes the columns as needed.)*
 
 ---
 
-## 7. Step 3: Train the Gaze Mapping Model
+## 7. Step 3: Train the kNN Mapping Model
 
-Once you have a **calibration CSV** that includes both **eye landmarks** and **true screen coordinates**, you can train the regression model:
-
+Train the kNN mapping model using your calibration CSV. This model will learn to predict screen coordinates from the eight eye landmark features. In your terminal, run:
 ```bash
-python train_gaze_mapping.py \
-    --data calibration_data_for_training.csv \
-    --output data/trained_model/gaze_mapping_model.pkl
+python src/train_knn_mapping.py --data calibration_data_for_training.csv --output data/trained_model/knn_mapping_model.joblib --neighbors 5
 ```
-
-Your final calibration CSV should have columns:
-
-```
-left_corner_x, left_corner_y,
-right_corner_x, right_corner_y,
-left_pupil_x, left_pupil_y,
-right_pupil_x, right_pupil_y,
-screen_x, screen_y
-```
-
-The training script will produce a `.pkl` file containing the trained mapping model.
+- `--neighbors` specifies the number of neighbors to use in kNN (default is 5).  
+- The trained model is saved (using joblib) to the specified output file.
 
 ---
 
 ## 8. Step 4: Process Experimental Videos (Extract Landmarks)
 
-Now that you have a **trained DLC model** (for detecting landmarks) **and** a **trained regression model** (for mapping landmarks to screen coords), you can process your actual experimental videos:
-
+Process your experimental videos with the same processing script used for calibration:
 ```bash
-python process_video.py \
-    --video /path/to/experimental_video.mp4 \
-    --config /path/to/dlc_config.yaml \
-    --output landmarks_output.csv
+python src/process_video.py --video /path/to/experimental_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv
 ```
-
-This step outputs a CSV (e.g. `landmarks_output.csv`) containing the same columns as your calibration CSV (pupil/corner positions), but *without* the final `(screen_x, screen_y)` columns.
+This will produce a landmarks CSV (e.g., `landmarks_output.csv`) with the eye landmark positions and a time column.
 
 ---
 
 ## 9. Step 5: Analyze Gaze (Generate Heatmaps & Time Spent)
 
-Finally, use **`analyze_gaze.py`** to map the raw landmark CSV into actual screen coordinates, split the screen into sections, and produce:
+Use an analysis script (e.g., `analyze_gaze_knn.py`) to:
+- Load the experimental landmarks CSV.
+- Convert the eye landmarks to screen coordinates using your trained kNN model.
+- Divide the screen into a grid (e.g., 3×3).
+- Compute the total time spent in each grid region (using frame duration derived from the `time` column).
+- Generate and save a heatmap image and a CSV file with section durations.
 
-1. A **heatmap** image.
-2. A CSV summarizing **time spent** in each region.
-
+Run:
 ```bash
-python analyze_gaze.py \
-    --landmarks_csv landmarks_output.csv \
-    --model data/trained_model/gaze_mapping_model.pkl \
-    --screen_width 1920 \
-    --screen_height 1080 \
-    --n_cols 3 \
-    --n_rows 3 \
-    --output_heatmap gaze_heatmap.png \
-    --output_sections section_durations.csv
+python src/analyze_gaze_knn.py --landmarks_csv landmarks_output.csv --model data/trained_model/knn_mapping_model.joblib --screen_width 1920 --screen_height 1080 --n_cols 3 --n_rows 3 --output_heatmap gaze_heatmap.png --output_sections section_durations.csv
 ```
 
-- **`--landmarks_csv`**: The CSV from `process_video.py`.  
-- **`--model`**: The `.pkl` file you trained in Step 3.  
-- **`--screen_width`** / **`--screen_height`**: Dimensions of your screen or area of interest.  
-- **`--n_cols`** / **`--n_rows`**: How many columns/rows to split the screen into.  
-- **`--output_heatmap`**: Path to save the generated heatmap image.  
-- **`--output_sections`**: Path to save a CSV listing the time spent in each region.
+---
 
-This script:
-1. Loads the raw landmarks CSV.
-2. Uses the regression model to compute `(screen_x, screen_y)` for each frame.
-3. Divides the screen into the specified grid (via `section_mapping.py`).
-4. Aggregates total time spent in each section.
-5. Saves both a heatmap (`gaze_heatmap.png`) and a CSV (`section_durations.csv`).
+## 10. Fine-Tuning or Retraining the kNN Model
+
+When new calibration data is available:
+1. **Combine** the new calibration data with your existing CSV (ensure the same column format).
+2. **Retrain the kNN model:**  
+   ```bash
+   python src/train_knn_mapping.py --data combined_calibration_data.csv --output data/trained_model/knn_mapping_model.joblib --neighbors 5
+   ```
+3. **Tune Hyperparameters:**  
+   Experiment with different values for `--neighbors` for optimal performance.
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
-- **Model Issues / DLC Not Detecting Landmarks Properly:**
-  - Verify that your `config.yaml` is correct and your DLC project is fully trained.
-- **Mapping Accuracy Problems:**
-  - Check that the data used to train your regression model covers a sufficient range of head poses and gaze positions.
-  - Make sure your calibration data CSV is aligned: each row’s `(screen_x, screen_y)` truly corresponds to that row’s eye landmarks.
-- **Dependency Issues:**
-  - Ensure all package versions match those listed in `requirements.txt`.
-- **TensorFlow or Keras Errors:**
-  - If you see `ModuleNotFoundError: No module named 'keras.legacy_tf_layers'`, upgrade TensorFlow as shown in [Installation and Setup](#installation-and-setup).
+- **Uniform Heatmap (All Regions Show the Same Color):**  
+  - Verify that the raw landmark data from `process_video.py` shows variability over time.
+  - Ensure your calibration data covers a wide range of screen positions.
+  - Print sample predicted screen coordinates (e.g., via debug statements) to verify the kNN model output.
+  
+- **Mapping Accuracy Issues:**  
+  - Check that the input features (eye landmarks) are properly normalized or scaled.
+  - Adjust the number of neighbors or try additional feature engineering.
 
----
-
-## 11. Future Improvements
-
-- **Enhanced Head–Pose Estimation:**
-  - Refine the head pose calculations or incorporate more 3D facial landmarks to improve accuracy.
-- **Adaptive Gaze Mapping:**
-  - Implement an online or continuously updated calibration procedure.
-- **Advanced Visualization Tools:**
-  - Develop dynamic or interactive dashboards to visualize fixations and heatmaps in real time.
+- **Data Format Issues:**  
+  - Confirm that your CSV files contain the required columns in the correct format.
+  - Ensure time values are either numeric or parseable as datetime objects.
 
 ---
 
-**Happy tracking!**  
+## 12. Future Improvements
+
+- **Advanced Feature Engineering:**  
+  Consider incorporating additional features (e.g., distances or angles between landmarks) that might improve the mapping accuracy.
+  
+- **Model Comparisons:**  
+  Experiment with alternative regression models (e.g., SVR, Random Forests) and compare their performance via cross-validation.
+  
+- **Adaptive Calibration:**  
+  Develop an online or real-time calibration method to continuously update the mapping model during use.
+  
+- **Enhanced Visualization:**  
+  Create interactive dashboards or real-time displays for dynamic gaze visualization.
+
+---
+
+**Happy Tracking!**
