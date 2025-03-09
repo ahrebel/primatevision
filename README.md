@@ -137,6 +137,17 @@ If you want to skip every other frame for increased speed, add the following to 
 --skip_frames
 ```
 
+If you want to change the interval at which the csv file is saved, add the following to the end of the above command:
+```bash
+--save_interval 50
+```
+
+If you want to change the resolution at which the video is processed, add the following to the end of the above command:
+Note: 1.0 is original resolution, 0.5 is half resolution
+```bash
+--resize_factor 1.0
+```
+
 *Example:*
 
 ```bash
