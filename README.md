@@ -7,211 +7,208 @@ PrimateVision implements an eye–tracking system for Rhesus macaques (and human
 > **Key Features:**
 >
 > - **Offline Video Processing:** Analyze pre–recorded trial videos.
-> - **DeepLabCut–Based Landmark Detection:** Use a trained DLC model to detect key eye landmarks (pupils and corners).
-> - **Gaze Mapping (kNN):** Convert eye coordinates to screen coordinates using a kNN regressor trained on calibration data.
-> - **Visualization:** Generate heatmaps and CSV summaries of time spent in each screen region.
-> - **Cross–Platform Support:** Runs on both macOS and Windows (CPU–only supported).
-> - **Optional Head–Pose Estimation:** Includes head roll estimation using facial landmarks.
+> - **DeepLabCut–Based Landmark Detection:** Utilize a trained DLC model to extract key eye landmarks.
+> - **Gaze Mapping (kNN):** Transform raw eye coordinates to screen positions using a calibration-trained kNN regressor.
+> - **Visualization:** Generate heatmaps and CSV summaries showing time spent in each screen region.
+> - **Cross–Platform Support:** Operates on macOS and Windows (CPU–only supported; GPU available for DeepLabCut).
+> - **Optional Head–Pose Estimation:** Provides head roll estimation via facial landmarks.
 
 ---
 
 ## Table of Contents
 
-1. [Installation and Setup](#installation-and-setup)  
-2. [Data Preparation](#data-preparation)  
-3. [DeepLabCut Model Training](#deeplabcut-model-training)  
-4. [Pipeline Overview](#pipeline-overview)  
-5. [Step 1: Extract Eye Landmarks for Calibration](#step-1-extract-eye-landmarks-for-calibration)  
-6. [Step 2: (Optional) Merge Gaze Data with Click Data](#step-2-optional-merge-gaze-data-with-click-data)  
-7. [Step 3: Train the kNN Mapping Model](#step-3-train-the-knn-mapping-model)  
-8. [Step 4: Process Experimental Videos (Extract Landmarks)](#step-4-process-experimental-videos-extract-landmarks)  
-9. [Step 5: Analyze Gaze (Generate Heatmaps & Time Spent)](#step-5-analyze-gaze-generate-heatmaps--time-spent)  
-10. [Fine-Tuning or Retraining the kNN Model](#step-10-fine-tuning-or-retraining-the-knn-model)  
-11. [Troubleshooting](#troubleshooting)  
-12. [Future Improvements](#future-improvements)
+1. [Installation and Setup](#installation-and-setup)
+2. [Data Preparation](#data-preparation)
+3. [DeepLabCut Model Training](#deeplabcut-model-training)
+4. [Pipeline Overview](#pipeline-overview)
+5. [Calibration & Processing](#calibration--processing)
+6. [Gaze Analysis & Visualization](#gaze-analysis--visualization)
+7. [Testing, CI, and Contribution Guidelines](#testing-ci-and-contribution-guidelines)
+8. [Future Improvements](#future-improvements)
+9. [License](#license)
 
 ---
 
 ## 1. Installation and Setup
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/ahrebel/primatevision.git
-   cd primatevision
-   ```
-2. **Set up your Python environment (using Conda is recommended):**
-   ```bash
-   conda create -n primatevision -c conda-forge python=3.8 pytables hdf5 lzo opencv numpy pandas matplotlib scikit-learn scikit-image scipy tqdm statsmodels
-   conda activate primatevision
-   ```
-3. **Install required packages:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. **Install additional DeepLabCut dependencies:**
-   ```bash
-   pip install deeplabcut pyyaml tensorflow tensorpack tf-slim 'deeplabcut[gui]'
-   ```
-   > *If you encounter a `ModuleNotFoundError: No module named 'keras.legacy_tf_layers'`, run:*
-   > ```bash
-   > pip install --upgrade tensorflow_macos==2.12.0
-   > ```
-   > *(Adjust for your system as needed.)*
+### Clone the Repository
+
+```bash
+git clone https://github.com/ahrebel/primatevision.git
+cd primatevision
+```
+
+### Set Up the Python Environment
+
+**Using Conda (recommended):**
+
+```bash
+conda create -n primatevision -c conda-forge python=3.8 pytables hdf5 lzo opencv numpy pandas matplotlib scikit-learn scikit-image scipy tqdm statsmodels
+conda activate primatevision
+```
+
+**Or using pip with a virtual environment:**
+
+```bash
+python -m venv venv
+source venv/bin/activate   # On Windows: venv\Scripts\activate
+```
+
+### Install Required Packages
+
+```bash
+pip install -r requirements.txt
+```
+
+Install additional DeepLabCut dependencies:
+
+```bash
+pip install deeplabcut pyyaml tensorflow tensorpack tf-slim 'deeplabcut[gui]'
+```
+
+*If a `ModuleNotFoundError: No module named 'keras.legacy_tf_layers'` occurs, run:*
+
+```bash
+pip install --upgrade tensorflow_macos==2.12.0
+```
 
 ---
 
 ## 2. Data Preparation
 
-- **Video Files:**  
-  Place your trial videos (e.g., `1.mp4`, `2.mp4`, etc.) in a folder such as `videos/input/`.
-
-- **(Optional) Touch/Click Event Files:**  
-  If you have additional calibration data (e.g., from clicks/touches), save them as CSV files with columns like `time, screen_x, screen_y` (or `time, click_x, click_y`).
+- **Videos:**  
+  Place trial videos (e.g., `1.mp4`, `2.mp4`, etc.) in the `videos/input/` folder.
+  
+- **Touch/Click Event Files (Optional):**  
+  Save additional calibration data as CSV files with columns such as `time, screen_x, screen_y`.
 
 ---
 
 ## 3. DeepLabCut Model Training
 
 1. **Launch the DLC GUI:**
+
    ```bash
    python -m deeplabcut
    ```
+
 2. **Create a New Project:**  
-   Enter your project name, add your video(s), and label keypoints such as `left_pupil`, `right_pupil`, `corner_left`, and `corner_right`.
+   Specify the project name, add the video(s), and define keypoints (e.g., `left_pupil`, `right_pupil`, `corner_left`, `corner_right`).
+
 3. **Label Frames:**  
-   Label a diverse set of frames covering various head poses and lighting conditions.
+   Label a diverse set of frames to cover various head poses and lighting conditions.
+
 4. **Train and Evaluate:**  
-   Train the network (consider using a lightweight model like `mobilenet_v2_1.0` for CPU-only systems) and evaluate its performance.
+   Train the network (consider a lightweight model such as `mobilenet_v2_1.0` for CPU-only systems) and evaluate its performance.
+
 5. **Update Configuration:**  
-   Ensure your scripts (e.g., `detect_eye.py`) point to your DLC project’s `config.yaml`.
+   Verify that the scripts (e.g., `detect_eye.py`) correctly reference the DLC project’s `config.yaml`.
 
 ---
 
 ## 4. Pipeline Overview
 
-1. **Calibration:** Extract eye landmarks from a calibration video.
-2. **(Optional) Merge Data:** Merge gaze landmarks with click/touch event data to form a comprehensive calibration CSV.
-3. **Mapping Model Training:** Train a kNN regression model to map eye landmarks to screen coordinates.
-4. **Experimental Processing:** Process experimental videos to extract raw landmarks.
-5. **Gaze Analysis:** Use the trained kNN model to convert eye landmarks to screen coordinates, divide the screen into regions, and generate heatmaps and summaries.
+The PrimateVision pipeline follows these steps:
+
+1. **Calibration:**  
+   Extract eye landmarks from a calibration video.
+2. **(Optional) Data Merging:**  
+   Combine gaze data with touch/click events to create a comprehensive calibration CSV.
+3. **Mapping Model Training:**  
+   Train a kNN regression model to convert raw eye coordinates to screen coordinates.
+4. **Experimental Processing:**  
+   Process experimental videos to extract raw landmarks.
+5. **Gaze Analysis:**  
+   Apply the trained kNN model to compute screen positions, segment the screen into regions, and calculate fixation durations.
 
 ---
 
-## 5. Step 1: Extract Eye Landmarks for Calibration
+## 5. Calibration & Processing
 
-Run the video processing script to extract eye landmarks. **PrimateVision** now includes an option to process frames concurrently by specifying the number of workers via the `--workers` argument. This can help speed up processing on multi-core systems.
+### Extract Eye Landmarks for Calibration
+
+Run the processing script with multiple workers:
 
 ```bash
 python src/process_video.py --video /path/to/calibration_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv --workers 4
 ```
 
-Example:
+*Example:*
+
 ```bash
-python src/process_video.py --video /Users/anthonyrebello/primatevision/videos/input/3.mp4 --config /Users/anthonyrebello/primatevision/eyetracking-ahrebel-2025-02-26/config.yaml --output landmarks_output.csv --workers 4
+python src/process_video.py --video videos/input/3.mp4 --config eyetracking-ahrebel-2025-02-26/config.yaml --output landmarks_output.csv --workers 4
 ```
 
-The output CSV should include columns such as:
+The output CSV should include columns like:
+
 ```
 frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle
 ```
 
----
+### Merge Gaze Data with Click Data (Optional)
 
-## 6. Step 2: (Optional) Merge Gaze Data with Click Data
-
-If you have click/touch data with known screen coordinates, merge them with your gaze data:
 ```bash
 python src/combine_gaze_click.py --gaze_csv landmarks_output.csv --click_file /path/to/your_click_file.csv --output_csv calibration_data_for_training.csv --max_time_diff 0.1
 ```
-After merging, your calibration CSV will include:
-```
-time, left_corner_x, left_corner_y, right_corner_x, right_corner_y,
-left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, screen_x, screen_y
-```
-*(The combine script renames columns as needed and removes duplicates.)*
 
 ---
 
-## 7. Step 3: Train the kNN Mapping Model
+## 6. Gaze Analysis & Visualization
 
-Train the kNN mapping model using your calibration CSV. In your terminal, run:
+### Train the kNN Mapping Model
+
 ```bash
 python src/train_knn_mapping.py --data calibration_data_for_training.csv --output data/trained_model/knn_mapping_model.joblib --neighbors 5
 ```
-- `--neighbors` sets the number of neighbors for the kNN regressor (default is 5).
-- The trained model is saved (using joblib) to the specified output file.
 
----
+### Process Experimental Videos
 
-## 8. Step 4: Process Experimental Videos (Extract Landmarks)
-
-Process your experimental videos using the same processing script as for calibration:
 ```bash
 python src/process_video.py --video /path/to/experimental_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv --workers 4
 ```
-This produces a landmarks CSV (e.g., `landmarks_output.csv`) with eye landmark positions and a `time` column.
 
----
+### Analyze Gaze and Generate Visualizations
 
-## 9. Step 5: Analyze Gaze (Generate Heatmaps & Time Spent)
-
-Use the analysis script (e.g., `analyze_gaze_knn.py`) to load your trained kNN model and perform gaze analysis:
 ```bash
 python src/analyze_gaze_knn.py --landmarks_csv landmarks_output.csv --model data/trained_model/knn_mapping_model.joblib --screen_width 1920 --screen_height 1080 --n_cols 3 --n_rows 3 --output_heatmap gaze_heatmap.png --output_sections section_durations.csv
 ```
-This command will:
-- Load your landmarks CSV.
-- Use the kNN model to predict screen coordinates from eye landmarks.
-- Divide the screen (e.g., 1920×1080) into a grid (3×3).
-- Compute the total time spent in each grid cell (based on frame durations from the `time` column).
-- Save a heatmap image (`gaze_heatmap.png`) and a CSV file (`section_durations.csv`) summarizing fixation durations.
+
+This command converts eye landmarks into screen coordinates, segments the screen into regions, and outputs a heatmap and summary CSV.
 
 ---
 
-## 10. Fine-Tuning or Retraining the kNN Model
+## 7. Testing, CI, and Contribution Guidelines
 
-When additional calibration data becomes available:
-1. **Combine** the new data with your existing calibration CSV (ensuring the same column format).
-2. **Retrain the model:**
-   ```bash
-   python src/train_knn_mapping.py --data combined_calibration_data.csv --output data/trained_model/knn_mapping_model.joblib --neighbors 5
-   ```
-3. **Hyperparameter Tuning:**  
-   Experiment with different `--neighbors` values to optimize performance.
-
----
-
-## 11. Troubleshooting
-
-- **Uniform Heatmap (All Regions Show the Same Color):**  
-  - Verify that your raw landmark data from `process_video.py` shows sufficient variability.
-  - Ensure your calibration data spans a wide range of gaze positions.
-  - Use debug printouts in the analysis script (e.g., sample predicted screen coordinates) to verify model output.
+- **Testing:**  
+  Unit and integration tests have been added for key components (e.g., calibration and kNN mapping) to ensure reliable performance.
   
-- **Mapping Accuracy Issues:**  
-  - Check that your input features (eye landmarks) are properly normalized or scaled.
-  - Adjust the kNN `--neighbors` parameter or perform additional feature engineering.
+- **Continuous Integration (CI):**  
+  GitHub Actions is configured to run tests and lint checks on every push and pull request.
   
-- **Data Format Problems:**  
-  - Confirm that your CSV files include the required columns in the correct format.
-  - Ensure that time values are numeric or parseable as datetime objects.
+- **Contribution Guidelines:**  
+  Refer to [CONTRIBUTING.md](CONTRIBUTING.md) for details on submitting pull requests and reporting issues.
+  
+- **Docker Support:**  
+  A Dockerfile is available for a containerized setup if desired.
+  
+- **Changelog:**  
+  Review [CHANGELOG.md](CHANGELOG.md) for information on project updates and releases.
 
 ---
 
-## 12. Future Improvements
+## 8. Future Improvements
 
 - **Advanced Feature Engineering:**  
-  Maybe incorporating additional features (e.g., distances or angles between landmarks) to improve mapping accuracy.
-  
+  Explore additional features (e.g., inter-landmark distances) to improve mapping accuracy.
 - **Model Comparisons:**  
-  Experimenting with alternative regression models (e.g., SVR, Random Forests) and evaluating their performance via cross-validation.
-  
+  Experiment with alternative regression models (e.g., SVR, Random Forests) via cross-validation.
 - **Adaptive Calibration:**  
-  Developing an online or real-time calibration method to continuously update the mapping model.
-  
+  Develop an online calibration method for real-time mapping updates.
 - **Enhanced Visualization:**  
-  Build interactive dashboards or real-time displays for dynamic gaze visualization.
+  Create interactive dashboards or real-time displays for dynamic gaze analysis.
 
 ---
 
-**Happy Tracking with PrimateVision!**
+## 9. License
+
+This project is licensed under the [GPL-3.0 License](LICENSE). Please see the license file for details.
