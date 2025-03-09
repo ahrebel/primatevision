@@ -199,7 +199,7 @@ This command converts eye landmarks into screen coordinates, segments the screen
   Develop an online calibration method for real-time mapping updates.
 - **Enhanced Visualization:**  
   Create interactive dashboards or real-time displays for dynamic gaze analysis.
-- **Add Docker Support:**
+- **Add Docker Support:**  
   Add a Dockerfile for containerized setup.
 
 ---
