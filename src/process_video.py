@@ -12,10 +12,10 @@ warnings.filterwarnings(
     message="`layer.apply` is deprecated and will be removed in a future version."
 )
 
-def process_video(video_path, config_path, output_csv_path):
+def process_video(video_path, config_path, output_csv_path, workers):
     """
     Process the input video to extract eye landmarks using DeepLabCut.
-    Two frames are processed concurrently to speed up processing.
+    A batch of 'workers' frames is processed concurrently.
     Every 5 frames, the current results are saved (overwriting any existing file).
 
     Output CSV will contain one row per frame with columns:
@@ -59,12 +59,12 @@ def process_video(video_path, config_path, output_csv_path):
             "roll_angle": roll_angle
         }
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         while True:
             frames_batch = []
             indices = []
-            # Collect up to 2 frames
-            for _ in range(2):
+            # Collect up to 'workers' frames
+            for _ in range(workers):
                 ret, frame = cap.read()
                 if not ret:
                     break
@@ -92,11 +92,12 @@ def process_video(video_path, config_path, output_csv_path):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
-        description="Process a video to extract eye landmarks using DeepLabCut, processing two frames concurrently and saving progress every 5 frames."
+        description="Process a video to extract eye landmarks using DeepLabCut, processing multiple frames concurrently and saving progress every 5 frames."
     )
     parser.add_argument("--video", required=True, help="Path to the input video")
     parser.add_argument("--config", required=True, help="Path to the DLC config.yaml file")
     parser.add_argument("--output", required=True, help="Output CSV file path")
+    parser.add_argument("--workers", type=int, default=2, help="Number of worker threads (frames processed concurrently)")
     args = parser.parse_args()
     
-    process_video(args.video, args.config, args.output)
+    process_video(args.video, args.config, args.output, args.workers)
