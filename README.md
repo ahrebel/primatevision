@@ -1,6 +1,3 @@
-Below is the reorganized version of your README. It maintains the same content while improving readability and visual structure.
-
-```markdown
 # PrimateVision
 
 ![Animated Eyes](https://github.com/user-attachments/assets/0f245b14-ec20-4a11-868a-ae207a7dfa1d)
