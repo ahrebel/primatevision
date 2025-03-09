@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import warnings
 import concurrent.futures
+import time
 
 from detect_eye import detect_eye_and_landmarks
 
@@ -29,6 +30,9 @@ def process_video(video_path, config_path, output_csv_path, workers):
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_num = 0
     results = []
+    
+    # Start time for speed tracking
+    start_time = time.time()
 
     def process_frame(frame, index):
         try:
@@ -77,11 +81,17 @@ def process_video(video_path, config_path, output_csv_path, workers):
             batch_results = list(executor.map(process_frame, frames_batch, indices))
             results.extend(batch_results)
             
-            # Every 5 frames, save the current results (overwriting any existing file)
+            # Every 5 frames, save the current results and output speed metrics
             if frame_num % 5 == 0:
                 df = pd.DataFrame(results)
                 df.to_csv(output_csv_path, index=False)
+                elapsed_time = time.time() - start_time
+                processing_rate = frame_num / elapsed_time if elapsed_time > 0 else 0
+                # Estimate time to process 1 minute of video (in seconds)
+                # 1 minute of video = 60 * fps frames
+                estimated_time_per_minute = (60 * fps) / processing_rate if processing_rate > 0 else float('inf')
                 print(f"Saved results up to frame {frame_num} to {output_csv_path}")
+                print(f"Processing speed: {processing_rate:.2f} frames/s | Estimated time for 1 minute of video: {estimated_time_per_minute:.2f} seconds")
     
     cap.release()
     # Final write (in case the last batch isn't a multiple of 5)
