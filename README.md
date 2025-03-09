@@ -36,8 +36,8 @@ PrimateVision implements an eye–tracking system for Rhesus macaques (and human
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/ahrebel/rhesustracking.git
-   cd rhesustracking
+   git clone https://github.com/ahrebel/primatevision.git
+   cd primatevision
    ```
 2. **Set up your Python environment (using Conda is recommended):**
    ```bash
@@ -91,7 +91,7 @@ PrimateVision implements an eye–tracking system for Rhesus macaques (and human
 ## 4. Pipeline Overview
 
 1. **Calibration:** Extract eye landmarks from a calibration video.
-2. **(Optional) Merge Data:** Merge gaze landmarks with click/touch data to create a calibration CSV.
+2. **(Optional) Merge Data:** Merge gaze landmarks with click/touch event data to create a calibration CSV.
 3. **Mapping Model Training:** Train a kNN regression model to map eye landmarks to screen coordinates.
 4. **Experimental Processing:** Process experimental videos to extract raw landmarks.
 5. **Gaze Analysis:** Convert eye landmarks to screen coordinates using the kNN model, divide the screen into regions, and generate heatmaps and summaries.
@@ -108,7 +108,7 @@ Example:
 ```bash
 python src/process_video.py --video /Users/anthonyrebello/primatevision/videos/input/3.mp4 --config /Users/anthonyrebello/primatevision/eyetracking-ahrebel-2025-02-26/config.yaml --output landmarks_output.csv
 ```
-The resulting CSV should contain columns such as:  
+The output CSV should include columns such as:  
 `frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle`.
 
 ---
@@ -119,7 +119,7 @@ If you have click/touch data with known screen coordinates, merge them with your
 ```bash
 python src/combine_gaze_click.py --gaze_csv landmarks_output.csv --click_file /path/to/your_click_file.csv --output_csv calibration_data_for_training.csv --max_time_diff 0.1
 ```
-After merging, your calibration CSV will include:
+After merging, the calibration CSV will include:
 ```
 time, left_corner_x, left_corner_y, right_corner_x, right_corner_y,
 left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, screen_x, screen_y
@@ -151,23 +151,23 @@ This produces a landmarks CSV (e.g., `landmarks_output.csv`) with eye landmark p
 
 ## 9. Step 5: Analyze Gaze (Generate Heatmaps & Time Spent)
 
-Use an analysis script (e.g., `analyze_gaze_knn.py`) that loads your trained kNN model to:
-- Convert eye landmarks to screen coordinates.
-- Divide the screen into a grid (e.g., 3×3).
-- Compute the total time spent in each grid region (using frame duration derived from the `time` column).
-- Generate and save a heatmap image and a CSV file summarizing fixation durations.
-
-Run:
+Use the analysis script (e.g., `analyze_gaze_knn.py`) to load your trained kNN model and perform gaze analysis:
 ```bash
 python src/analyze_gaze_knn.py --landmarks_csv landmarks_output.csv --model data/trained_model/knn_mapping_model.joblib --screen_width 1920 --screen_height 1080 --n_cols 3 --n_rows 3 --output_heatmap gaze_heatmap.png --output_sections section_durations.csv
 ```
+This script will:
+- Load the landmarks CSV.
+- Use the kNN model to predict screen coordinates from the eye landmarks.
+- Divide the screen (e.g., 1920×1080) into a grid (3×3 in this example).
+- Compute the total time spent in each grid region (using frame durations derived from the `time` column).
+- Save a heatmap image (`gaze_heatmap.png`) and a CSV file (`section_durations.csv`) summarizing fixation durations.
 
 ---
 
 ## 10. Fine-Tuning or Retraining the kNN Model
 
 When additional calibration data becomes available:
-1. **Combine** the new data with your existing calibration CSV (ensuring the same column format).
+1. **Combine** the new calibration data with your existing CSV (ensuring the same column format).
 2. **Retrain the model:**  
    ```bash
    python src/train_knn_mapping.py --data combined_calibration_data.csv --output data/trained_model/knn_mapping_model.joblib --neighbors 5
@@ -180,7 +180,7 @@ When additional calibration data becomes available:
 ## 11. Troubleshooting
 
 - **Uniform Heatmap (All Regions Show the Same Color):**  
-  - Verify that your raw landmark data from `process_video.py` shows variability.  
+  - Verify that your raw landmark data from `process_video.py` shows variability over time.  
   - Ensure your calibration CSV covers a wide range of gaze positions.  
   - Use debug printouts (e.g., sample predicted screen coordinates) in the analysis script to check model output.
   
