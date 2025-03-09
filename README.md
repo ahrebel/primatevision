@@ -201,13 +201,13 @@ When additional calibration data becomes available:
 ## 12. Future Improvements
 
 - **Advanced Feature Engineering:**  
-  Consider incorporating additional features (e.g., distances or angles between landmarks) to improve mapping accuracy.
+  Maybe incorporating additional features (e.g., distances or angles between landmarks) to improve mapping accuracy.
   
 - **Model Comparisons:**  
-  Experiment with alternative regression models (e.g., SVR, Random Forests) and evaluate their performance via cross-validation.
+  Experimenting with alternative regression models (e.g., SVR, Random Forests) and evaluating their performance via cross-validation.
   
 - **Adaptive Calibration:**  
-  Develop an online or real-time calibration method to continuously update the mapping model.
+  Developing an online or real-time calibration method to continuously update the mapping model.
   
 - **Enhanced Visualization:**  
   Build interactive dashboards or real-time displays for dynamic gaze visualization.
