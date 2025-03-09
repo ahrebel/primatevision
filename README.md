@@ -5,25 +5,25 @@
 PrimateVision implements an eye–tracking system for Rhesus macaques (and humans) using **DeepLabCut (DLC)**. It detects eye landmarks from video frames, maps raw eye coordinates to screen positions using a trained k–Nearest Neighbors (kNN) regression model, and analyzes gaze/fixation patterns during touchscreen interactions.
 
 > **Key Features:**
-> - **Offline Video Processing:** Analyze pre–recorded trial videos.
-> - **DeepLabCut–Based Landmark Detection:** Utilize a trained DLC model to extract key eye landmarks.
-> - **Gaze Mapping (kNN):** Transform raw eye coordinates to screen positions using a calibration-trained kNN regressor.
-> - **Visualization:** Generate heatmaps and CSV summaries showing time spent in each screen region.
-> - **Cross–Platform Support:** Operates on macOS and Windows (CPU–only supported; GPU available for DeepLabCut).
+> - **Offline Video Processing:** Analyze pre–recorded trial videos.  
+> - **DeepLabCut–Based Landmark Detection:** Utilize a trained DLC model to extract key eye landmarks.  
+> - **Gaze Mapping (kNN):** Transform raw eye coordinates to screen positions using a calibration-trained kNN regressor.  
+> - **Visualization:** Generate heatmaps and CSV summaries showing time spent in each screen region.  
+> - **Cross–Platform Support:** Operates on macOS and Windows (CPU–only supported; GPU available for DeepLabCut).  
 > - **Optional Head–Pose Estimation:** Provides head roll estimation via facial landmarks.
 
 ---
 
 ## Table of Contents
 
-1. [Installation and Setup](#installation-and-setup)
-2. [Data Preparation](#data-preparation)
-3. [DeepLabCut Model Training](#deeplabcut-model-training)
-4. [Pipeline Overview](#pipeline-overview)
-5. [Calibration & Processing](#calibration--processing)
-6. [Gaze Analysis & Visualization](#gaze-analysis--visualization)
-7. [Testing, CI, and Contribution Guidelines](#testing-ci-and-contribution-guidelines)
-8. [Future Improvements](#future-improvements)
+1. [Installation and Setup](#installation-and-setup)  
+2. [Data Preparation](#data-preparation)  
+3. [DeepLabCut Model Training](#deeplabcut-model-training)  
+4. [Pipeline Overview](#pipeline-overview)  
+5. [Calibration & Processing](#calibration--processing)  
+6. [Gaze Analysis & Visualization](#gaze-analysis--visualization)  
+7. [Testing, CI, and Contribution Guidelines](#testing-ci-and-contribution-guidelines)  
+8. [Future Improvements](#future-improvements)  
 9. [License](#license)
 
 ---
@@ -77,9 +77,9 @@ pip install --upgrade tensorflow_macos==2.12.0
 
 - **Videos:**  
   Place trial videos (e.g., `1.mp4`, `2.mp4`, etc.) in the `videos/input/` folder.
-  
+
 - **Touch/Click Event Files (Optional):**  
-  Save additional calibration data as CSV files with columns such as `time, screen_x, screen_y`.
+  Save any calibration data (e.g., from touchscreen clicks) as CSV files with columns such as `time, screen_x, screen_y`.  
 
 ---
 
@@ -101,7 +101,7 @@ pip install --upgrade tensorflow_macos==2.12.0
    Train the network (consider a lightweight model such as `mobilenet_v2_1.0` for CPU-only systems) and evaluate its performance.
 
 5. **Update Configuration:**  
-   Ensure that the scripts (e.g., `detect_eye.py`) correctly reference the DLC project’s `config.yaml`.
+   Ensure that scripts like `detect_eye.py` reference the correct DLC project config (`config.yaml`).
 
 ---
 
@@ -124,46 +124,86 @@ The PrimateVision pipeline includes the following steps:
 
 ## 5. Calibration & Processing
 
-### Extract Eye Landmarks for Calibration
+Use the `process_video.py` script to extract eye landmarks from your videos. This script supports:
 
-Run the processing script with multiple workers:
+- **Concurrent Processing (`--workers`)**  
+- **Optional Frame Skipping (`--skip_frames`)**  
+- **Optional Frame Resizing (`--resize_factor`)**  
+- **Periodic Saving (`--save_interval`)**  
+- **Rolling Median Smoothing (`--smooth_window`)**  
 
-```bash
-python src/process_video.py --video /path/to/calibration_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv --workers 4
-```
+Below are some common usage examples.
 
-If you want to skip every other frame for increased speed, add the following to the end of the above command:
-```bash
---skip_frames
-```
-
-If you want to change the interval at which the csv file is saved, add the following to the end of the above command:
-```bash
---save_interval 50
-```
-
-If you want to change the resolution at which the video is processed, add the following to the end of the above command:
-Note: 1.0 is original resolution, 0.5 is half resolution
-```bash
---resize_factor 1.0
-```
-
-*Example:*
+### Basic Example (Full Accuracy, No Skipping/Resizing)
 
 ```bash
-python src/process_video.py --video videos/input/3.mp4 --config eyetracking-ahrebel-2025-02-26/config.yaml --output landmarks_output.csv --workers 4
+python src/process_video.py \
+  --video /path/to/calibration_video.mp4 \
+  --config /path/to/dlc_config.yaml \
+  --output /path/to/landmarks_output.csv \
+  --workers 4
 ```
 
-The output CSV should include columns like:
+### Skipping Frames for Speed
 
+```bash
+python src/process_video.py \
+  --video /path/to/video.mp4 \
+  --config /path/to/dlc_config.yaml \
+  --output /path/to/landmarks_output.csv \
+  --workers 4 \
+  --skip_frames
 ```
-frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle
+*Skips every other frame, cutting processing time but reducing temporal resolution.*
+
+### Resizing Frames
+
+```bash
+python src/process_video.py \
+  --video /path/to/video.mp4 \
+  --config /path/to/dlc_config.yaml \
+  --output /path/to/landmarks_output.csv \
+  --workers 4 \
+  --resize_factor 0.5
 ```
+*Downsamples frames to half resolution for faster CPU performance. (1.0 = original size.)*
+
+### Smoothing Landmarks
+
+```bash
+python src/process_video.py \
+  --video /path/to/video.mp4 \
+  --config /path/to/dlc_config.yaml \
+  --output /path/to/landmarks_output.csv \
+  --workers 4 \
+  --smooth_window 3
+```
+*Applies a rolling median filter over a 3-frame window to reduce jitter/outliers in landmark coordinates.*
+
+### Adjusting Save Interval
+
+```bash
+python src/process_video.py \
+  --video /path/to/video.mp4 \
+  --config /path/to/dlc_config.yaml \
+  --output /path/to/landmarks_output.csv \
+  --workers 4 \
+  --save_interval 50
+```
+*Saves intermediate results every 50 processed frames instead of the default.*
+
+---
 
 ### Merge Gaze Data with Click Data (Optional)
 
+If you have additional calibration data (e.g., touchscreen events), merge them with the gaze CSV:
+
 ```bash
-python src/combine_gaze_click.py --gaze_csv landmarks_output.csv --click_file /path/to/your_click_file.csv --output_csv calibration_data_for_training.csv --max_time_diff 0.1
+python src/combine_gaze_click.py \
+  --gaze_csv landmarks_output.csv \
+  --click_file /path/to/your_click_file.csv \
+  --output_csv calibration_data_for_training.csv \
+  --max_time_diff 0.1
 ```
 
 ---
@@ -172,54 +212,79 @@ python src/combine_gaze_click.py --gaze_csv landmarks_output.csv --click_file /p
 
 ### Train the kNN Mapping Model
 
+After merging gaze and click data, train a kNN model:
+
 ```bash
-python src/train_knn_mapping.py --data calibration_data_for_training.csv --output data/trained_model/knn_mapping_model.joblib --neighbors 5
+python src/train_knn_mapping.py \
+  --data calibration_data_for_training.csv \
+  --output data/trained_model/knn_mapping_model.joblib \
+  --neighbors 5
 ```
 
 ### Process Experimental Videos
 
+Use the same `process_video.py` script for your experimental videos:
+
 ```bash
-python src/process_video.py --video /path/to/experimental_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv --workers 4
+python src/process_video.py \
+  --video /path/to/experimental_video.mp4 \
+  --config /path/to/dlc_config.yaml \
+  --output /path/to/landmarks_output.csv \
+  --workers 4
 ```
 
 ### Analyze Gaze and Generate Visualizations
 
 ```bash
-python src/analyze_gaze_knn.py --landmarks_csv landmarks_output.csv --model data/trained_model/knn_mapping_model.joblib --screen_width 1920 --screen_height 1080 --n_cols 3 --n_rows 3 --output_heatmap gaze_heatmap.png --output_sections section_durations.csv
+python src/analyze_gaze_knn.py \
+  --landmarks_csv /path/to/landmarks_output.csv \
+  --model data/trained_model/knn_mapping_model.joblib \
+  --screen_width 1920 \
+  --screen_height 1080 \
+  --n_cols 3 \
+  --n_rows 3 \
+  --output_heatmap gaze_heatmap.png \
+  --output_sections section_durations.csv
 ```
 
-This command converts eye landmarks into screen coordinates, segments the screen into regions, and outputs a heatmap along with a summary CSV.
+This command:
+1. Loads your landmarks CSV.  
+2. Applies the kNN model to map eye coordinates → screen coordinates.  
+3. Segments the screen (e.g., 1920×1080) into a 3×3 grid.  
+4. Computes the time spent in each grid cell.  
+5. Outputs a heatmap image and a CSV summarizing fixation durations.
 
 ---
 
 ## 7. Testing, CI, and Contribution Guidelines
 
 - **Testing:**  
-  Unit and integration tests have been added for key components (e.g., calibration and kNN mapping) to ensure reliable performance.
+  Unit and integration tests ensure reliable performance for calibration, kNN mapping, and other key components.
   
 - **Continuous Integration (CI):**  
-  GitHub Actions is configured to run tests and lint checks on every push and pull request.
-  
+  GitHub Actions runs tests and lint checks on every push/pull request.
+
 - **Contribution Guidelines:**  
-  See [CONTRIBUTING.md](CONTRIBUTING.md) for details on submitting pull requests and reporting issues.
+  Refer to [CONTRIBUTING.md](CONTRIBUTING.md) for details on pull requests, reporting issues, and our code of conduct.
 
 ---
 
 ## 8. Future Improvements
 
 - **Advanced Feature Engineering:**  
-  Explore additional features (e.g., inter-landmark distances) to improve mapping accuracy.
+  Investigate additional features (e.g., inter-landmark distances, angles) to refine mapping accuracy.
 - **Model Comparisons:**  
-  Experiment with alternative regression models (e.g., SVR, Random Forests) via cross-validation.
+  Test alternative regression models (e.g., SVR, Random Forests) through cross-validation.
 - **Adaptive Calibration:**  
-  Develop an online calibration method for real-time mapping updates.
+  Develop real-time or online calibration methods for dynamic mapping updates.
 - **Enhanced Visualization:**  
-  Create interactive dashboards or real-time displays for dynamic gaze analysis.
-- **Add Docker Support:**  
-  Add a Dockerfile for containerized setup.
+  Implement interactive dashboards or real-time displays for dynamic gaze analysis.
+- **Docker Support:**  
+  Provide a Dockerfile for containerized setups.
 
 ---
 
 ## 9. License
 
-This project is licensed under the [GPL-3.0 License](LICENSE). Please refer to the license file for details.
+This project is licensed under the [GPL-3.0 License](LICENSE).  
+Please see the license file for details regarding usage and distribution.
