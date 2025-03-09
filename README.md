@@ -66,7 +66,7 @@ PrimateVision implements an eye–tracking system for Rhesus macaques (and human
   Place your trial videos (e.g., `1.mp4`, `2.mp4`, etc.) in a folder such as `videos/input/`.
 
 - **(Optional) Touch/Click Event Files:**  
-  If you use additional calibration data (e.g., from clicks/touches), save them as CSV files with columns like `time, screen_x, screen_y` (or `time, click_x, click_y`).
+  If you have additional calibration data (e.g., from clicks/touches), save them as CSV files with columns like `time, screen_x, screen_y` (or `time, click_x, click_y`).
 
 ---
 
@@ -77,12 +77,11 @@ PrimateVision implements an eye–tracking system for Rhesus macaques (and human
    python -m deeplabcut
    ```
 2. **Create a New Project:**  
-   - Enter your project name and add your video(s).  
-   - Label keypoints (e.g., `left_pupil`, `right_pupil`, `corner_left`, `corner_right`).
+   Enter your project name, add your video(s), and label keypoints such as `left_pupil`, `right_pupil`, `corner_left`, and `corner_right`.
 3. **Label Frames:**  
-   Label a diverse set of frames to cover different head poses and lighting.
+   Label a diverse set of frames covering various head poses and lighting conditions.
 4. **Train and Evaluate:**  
-   Train the network (consider using a lighter model like `mobilenet_v2_1.0` if using CPU-only) and evaluate its performance.
+   Train the network (consider using a lightweight model like `mobilenet_v2_1.0` for CPU-only systems) and evaluate its performance.
 5. **Update Configuration:**  
    Ensure your scripts (e.g., `detect_eye.py`) point to your DLC project’s `config.yaml`.
 
@@ -91,25 +90,30 @@ PrimateVision implements an eye–tracking system for Rhesus macaques (and human
 ## 4. Pipeline Overview
 
 1. **Calibration:** Extract eye landmarks from a calibration video.
-2. **(Optional) Merge Data:** Merge gaze landmarks with click/touch event data to create a calibration CSV.
+2. **(Optional) Merge Data:** Merge gaze landmarks with click/touch event data to form a comprehensive calibration CSV.
 3. **Mapping Model Training:** Train a kNN regression model to map eye landmarks to screen coordinates.
 4. **Experimental Processing:** Process experimental videos to extract raw landmarks.
-5. **Gaze Analysis:** Convert eye landmarks to screen coordinates using the kNN model, divide the screen into regions, and generate heatmaps and summaries.
+5. **Gaze Analysis:** Use the trained kNN model to convert eye landmarks to screen coordinates, divide the screen into regions, and generate heatmaps and summaries.
 
 ---
 
 ## 5. Step 1: Extract Eye Landmarks for Calibration
 
-Run the video processing script to extract eye landmarks:
+Run the video processing script to extract eye landmarks. **PrimateVision** now includes an option to process frames concurrently by specifying the number of workers via the `--workers` argument. This can help speed up processing on multi-core systems.
+
 ```bash
-python src/process_video.py --video /path/to/calibration_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv
+python src/process_video.py --video /path/to/calibration_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv --workers 4
 ```
+
 Example:
 ```bash
-python src/process_video.py --video /Users/anthonyrebello/primatevision/videos/input/3.mp4 --config /Users/anthonyrebello/primatevision/eyetracking-ahrebel-2025-02-26/config.yaml --output landmarks_output.csv
+python src/process_video.py --video /Users/anthonyrebello/primatevision/videos/input/3.mp4 --config /Users/anthonyrebello/primatevision/eyetracking-ahrebel-2025-02-26/config.yaml --output landmarks_output.csv --workers 4
 ```
-The output CSV should include columns such as:  
-`frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle`.
+
+The output CSV should include columns such as:
+```
+frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle
+```
 
 ---
 
@@ -119,12 +123,12 @@ If you have click/touch data with known screen coordinates, merge them with your
 ```bash
 python src/combine_gaze_click.py --gaze_csv landmarks_output.csv --click_file /path/to/your_click_file.csv --output_csv calibration_data_for_training.csv --max_time_diff 0.1
 ```
-After merging, the calibration CSV will include:
+After merging, your calibration CSV will include:
 ```
 time, left_corner_x, left_corner_y, right_corner_x, right_corner_y,
 left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y, screen_x, screen_y
 ```
-*(The combine script renames and organizes the columns as needed and removes duplicates.)*
+*(The combine script renames columns as needed and removes duplicates.)*
 
 ---
 
@@ -134,16 +138,16 @@ Train the kNN mapping model using your calibration CSV. In your terminal, run:
 ```bash
 python src/train_knn_mapping.py --data calibration_data_for_training.csv --output data/trained_model/knn_mapping_model.joblib --neighbors 5
 ```
-- `--neighbors` sets the number of neighbors for the kNN regressor (default is 5).  
+- `--neighbors` sets the number of neighbors for the kNN regressor (default is 5).
 - The trained model is saved (using joblib) to the specified output file.
 
 ---
 
 ## 8. Step 4: Process Experimental Videos (Extract Landmarks)
 
-Process your experimental videos with the same processing script used for calibration:
+Process your experimental videos using the same processing script as for calibration:
 ```bash
-python src/process_video.py --video /path/to/experimental_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv
+python src/process_video.py --video /path/to/experimental_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv --workers 4
 ```
 This produces a landmarks CSV (e.g., `landmarks_output.csv`) with eye landmark positions and a `time` column.
 
@@ -155,11 +159,11 @@ Use the analysis script (e.g., `analyze_gaze_knn.py`) to load your trained kNN m
 ```bash
 python src/analyze_gaze_knn.py --landmarks_csv landmarks_output.csv --model data/trained_model/knn_mapping_model.joblib --screen_width 1920 --screen_height 1080 --n_cols 3 --n_rows 3 --output_heatmap gaze_heatmap.png --output_sections section_durations.csv
 ```
-This script will:
-- Load the landmarks CSV.
-- Use the kNN model to predict screen coordinates from the eye landmarks.
-- Divide the screen (e.g., 1920×1080) into a grid (3×3 in this example).
-- Compute the total time spent in each grid region (using frame durations derived from the `time` column).
+This command will:
+- Load your landmarks CSV.
+- Use the kNN model to predict screen coordinates from eye landmarks.
+- Divide the screen (e.g., 1920×1080) into a grid (3×3).
+- Compute the total time spent in each grid cell (based on frame durations from the `time` column).
 - Save a heatmap image (`gaze_heatmap.png`) and a CSV file (`section_durations.csv`) summarizing fixation durations.
 
 ---
@@ -167,8 +171,8 @@ This script will:
 ## 10. Fine-Tuning or Retraining the kNN Model
 
 When additional calibration data becomes available:
-1. **Combine** the new calibration data with your existing CSV (ensuring the same column format).
-2. **Retrain the model:**  
+1. **Combine** the new data with your existing calibration CSV (ensuring the same column format).
+2. **Retrain the model:**
    ```bash
    python src/train_knn_mapping.py --data combined_calibration_data.csv --output data/trained_model/knn_mapping_model.joblib --neighbors 5
    ```
@@ -180,16 +184,16 @@ When additional calibration data becomes available:
 ## 11. Troubleshooting
 
 - **Uniform Heatmap (All Regions Show the Same Color):**  
-  - Verify that your raw landmark data from `process_video.py` shows variability over time.  
-  - Ensure your calibration CSV covers a wide range of gaze positions.  
-  - Use debug printouts (e.g., sample predicted screen coordinates) in the analysis script to check model output.
+  - Verify that your raw landmark data from `process_video.py` shows sufficient variability.
+  - Ensure your calibration data spans a wide range of gaze positions.
+  - Use debug printouts in the analysis script (e.g., sample predicted screen coordinates) to verify model output.
   
 - **Mapping Accuracy Issues:**  
-  - Check that the input features (eye landmarks) are properly normalized or scaled.  
-  - Adjust the kNN `--neighbors` parameter or try additional feature engineering.
+  - Check that your input features (eye landmarks) are properly normalized or scaled.
+  - Adjust the kNN `--neighbors` parameter or perform additional feature engineering.
   
 - **Data Format Problems:**  
-  - Confirm that your CSV files include the required columns in the correct format.  
+  - Confirm that your CSV files include the required columns in the correct format.
   - Ensure that time values are numeric or parseable as datetime objects.
 
 ---
@@ -200,7 +204,7 @@ When additional calibration data becomes available:
   Consider incorporating additional features (e.g., distances or angles between landmarks) to improve mapping accuracy.
   
 - **Model Comparisons:**  
-  Experiment with alternative regression models (e.g., SVR, Random Forests) and evaluate their performance using cross-validation.
+  Experiment with alternative regression models (e.g., SVR, Random Forests) and evaluate their performance via cross-validation.
   
 - **Adaptive Calibration:**  
   Develop an online or real-time calibration method to continuously update the mapping model.
