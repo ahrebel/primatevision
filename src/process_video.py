@@ -3,6 +3,8 @@ import cv2
 import os
 import pandas as pd
 import warnings
+import concurrent.futures
+
 from detect_eye import detect_eye_and_landmarks
 
 warnings.filterwarnings(
@@ -13,8 +15,9 @@ warnings.filterwarnings(
 def process_video(video_path, config_path, output_csv_path):
     """
     Process the input video to extract eye landmarks using DeepLabCut.
+    Two frames are processed concurrently to speed up processing.
     Every 5 frames, the current results are saved (overwriting any existing file).
-    
+
     Output CSV will contain one row per frame with columns:
       frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y,
       corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle.
@@ -26,18 +29,14 @@ def process_video(video_path, config_path, output_csv_path):
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_num = 0
     results = []
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
+
+    def process_frame(frame, index):
         try:
             detection = detect_eye_and_landmarks(frame, config_path=config_path)
             landmarks = detection['landmarks']
             roll_angle = detection.get('roll_angle', None)
         except Exception as e:
-            print(f"Frame {frame_num}: Detection error: {e}")
+            print(f"Frame {index}: Detection error: {e}")
             landmarks = {
                 'left_pupil': (None, None),
                 'right_pupil': (None, None),
@@ -45,10 +44,9 @@ def process_video(video_path, config_path, output_csv_path):
                 'corner_right': (None, None)
             }
             roll_angle = None
-        
-        timestamp = frame_num / fps if fps > 0 else None
-        results.append({
-            "frame": frame_num,
+        timestamp = index / fps if fps > 0 else None
+        return {
+            "frame": index,
             "time": timestamp,
             "left_pupil_x": landmarks['left_pupil'][0],
             "left_pupil_y": landmarks['left_pupil'][1],
@@ -59,18 +57,34 @@ def process_video(video_path, config_path, output_csv_path):
             "corner_right_x": landmarks['corner_right'][0],
             "corner_right_y": landmarks['corner_right'][1],
             "roll_angle": roll_angle
-        })
-        frame_num += 1
-        
-        # Every 5 frames, overwrite the output CSV with current results.
-        if frame_num % 5 == 0:
-            df = pd.DataFrame(results)
-            df.to_csv(output_csv_path, index=False)
-            print(f"Saved results up to frame {frame_num} to {output_csv_path}")
+        }
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        while True:
+            frames_batch = []
+            indices = []
+            # Collect up to 2 frames
+            for _ in range(2):
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frames_batch.append(frame)
+                indices.append(frame_num)
+                frame_num += 1
+            if not frames_batch:
+                break
+            # Process these frames concurrently
+            batch_results = list(executor.map(process_frame, frames_batch, indices))
+            results.extend(batch_results)
+            
+            # Every 5 frames, save the current results (overwriting any existing file)
+            if frame_num % 5 == 0:
+                df = pd.DataFrame(results)
+                df.to_csv(output_csv_path, index=False)
+                print(f"Saved results up to frame {frame_num} to {output_csv_path}")
     
     cap.release()
-    
-    # Final write (in case the last batch is not a multiple of 5)
+    # Final write (in case the last batch isn't a multiple of 5)
     df = pd.DataFrame(results)
     df.to_csv(output_csv_path, index=False)
     print(f"Video processing complete. Final results saved to {output_csv_path}")
@@ -78,7 +92,7 @@ def process_video(video_path, config_path, output_csv_path):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
-        description="Process a video to extract eye landmarks using DeepLabCut, saving progress every 5 frames."
+        description="Process a video to extract eye landmarks using DeepLabCut, processing two frames concurrently and saving progress every 5 frames."
     )
     parser.add_argument("--video", required=True, help="Path to the input video")
     parser.add_argument("--config", required=True, help="Path to the DLC config.yaml file")
