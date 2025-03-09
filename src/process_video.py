@@ -1,34 +1,27 @@
 #!/usr/bin/env python
 import cv2
 import os
-import pandas as pd
-import warnings
-import concurrent.futures
-import time
 import argparse
+import tempfile
+import numpy as np
+import pandas as pd
+import deeplabcut
+import time
 
-from detect_eye import detect_eye_and_landmarks
-
-warnings.filterwarnings(
-    "ignore",
-    message="`layer.apply` is deprecated and will be removed in a future version."
-)
-
-def smooth_landmarks(df, window_size=3):
+def smooth_landmarks_inplace(df, window_size=3):
     """
-    Applies a rolling median filter to landmark columns to reduce noise/outliers.
+    Applies a rolling median filter to key landmark columns to reduce noise/outliers.
     Increase 'window_size' for stronger smoothing.
     """
-    # Columns to smooth
     columns = [
         "left_pupil_x", "left_pupil_y",
         "right_pupil_x", "right_pupil_y",
         "corner_left_x", "corner_left_y",
         "corner_right_x", "corner_right_y"
     ]
-    # Rolling median with a centered window
     for col in columns:
         if col in df.columns:
+            # center=True for symmetrical smoothing around each row
             df[col] = df[col].rolling(window=window_size, center=True, min_periods=1).median()
     return df
 
@@ -36,176 +29,183 @@ def process_video(
     video_path,
     config_path,
     output_csv_path,
-    workers=2,
     skip_frames=False,
     resize_factor=1.0,
-    save_interval=50,
     smooth_window=0
 ):
     """
-    Process the input video to extract eye landmarks using DeepLabCut, with optional:
-      - concurrency (multiple workers)
-      - skipping every other frame
-      - resizing frames for speed
-      - rolling median smoothing for accuracy
+    Reads an entire video, optionally skipping every other frame and resizing,
+    then writes all processed frames to a single temporary video. Calls DLC once
+    on that temporary video, parses the output CSV, and (optionally) applies a
+    rolling median filter to improve accuracy.
 
     Args:
       video_path (str): Path to the input video.
-      config_path (str): Path to the DLC config.yaml file.
-      output_csv_path (str): Where to save the output CSV.
-      workers (int): Number of threads (frames processed concurrently).
-      skip_frames (bool): If True, skip every other frame to speed up analysis.
-      resize_factor (float): Scale factor for resizing frames (e.g., 0.5 = half size).
-      save_interval (int): Save intermediate CSV after this many processed frames.
-      smooth_window (int): Window size for rolling median smoothing (0 = no smoothing).
-
-    The output CSV has one row per processed frame with columns:
-      frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y,
-      corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle.
+      config_path (str): Path to the DLC config.yaml file (trained model).
+      output_csv_path (str): Path to save the final CSV with columns:
+          frame, time, left_pupil_x, left_pupil_y, right_pupil_x, right_pupil_y,
+          corner_left_x, corner_left_y, corner_right_x, corner_right_y, roll_angle
+      skip_frames (bool): If True, skip every other frame (for speed).
+      resize_factor (float): Scale frames by this factor (1.0 = original size for best accuracy).
+      smooth_window (int): Apply rolling median smoothing over this many frames (0 = no smoothing).
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError(f"Could not open video file: {video_path}")
-    
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    global_frame_index = 0  # Tracks all frames read (including skipped)
-    processed_count = 0      # Tracks how many frames were actually processed
 
-    results = []
-    start_time = time.time()
+    original_fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
-    def process_frame(frame, unique_index):
-        """
-        Worker function to detect eye landmarks in a single frame.
-        'unique_index' is the global index at read time.
-        """
-        try:
-            # Optionally resize for more detail (1.0 = original size)
-            if resize_factor != 1.0:
-                new_w = int(frame.shape[1] * resize_factor)
-                new_h = int(frame.shape[0] * resize_factor)
-                frame = cv2.resize(frame, (new_w, new_h))
+    # Compute new dimensions if resizing
+    new_width = int(width * resize_factor)
+    new_height = int(height * resize_factor)
 
-            detection = detect_eye_and_landmarks(frame, config_path=config_path)
-            landmarks = detection['landmarks']
-            roll_angle = detection.get('roll_angle', None)
-        except Exception as e:
-            print(f"Frame {unique_index}: Detection error: {e}")
-            landmarks = {
-                'left_pupil': (None, None),
-                'right_pupil': (None, None),
-                'corner_left': (None, None),
-                'corner_right': (None, None)
-            }
-            roll_angle = None
-        
-        # Compute timestamp from the global index
-        timestamp = unique_index / fps if fps > 0 else None
-        
-        return {
-            "frame": unique_index,
-            "time": timestamp,
-            "left_pupil_x": landmarks['left_pupil'][0],
-            "left_pupil_y": landmarks['left_pupil'][1],
-            "right_pupil_x": landmarks['right_pupil'][0],
-            "right_pupil_y": landmarks['right_pupil'][1],
-            "corner_left_x": landmarks['corner_left'][0],
-            "corner_left_y": landmarks['corner_left'][1],
-            "corner_right_x": landmarks['corner_right'][0],
-            "corner_right_y": landmarks['corner_right'][1],
-            "roll_angle": roll_angle
-        }
+    # This list will map the processed frame index -> (original global frame index, time)
+    frame_map = []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_video_path = os.path.join(temp_dir, "combined_temp.mp4")
+
+        # Keep the same FPS to preserve timing in the final CSV
+        out_fps = original_fps
+        out_writer = cv2.VideoWriter(temp_video_path, fourcc, out_fps, (new_width, new_height))
+
+        global_frame_index = 0
+        processed_frame_count = 0
+        start_time = time.time()
+
+        print("Reading frames and writing them to a single temporary video...")
         while True:
-            frames_batch = []
-            frame_indices = []
-            
-            # Collect up to 'workers' frames
-            for _ in range(workers):
-                ret, frame = cap.read()
-                if not ret:
-                    break
-
-                current_index = global_frame_index
-                global_frame_index += 1
-
-                frames_batch.append(frame)
-                frame_indices.append(current_index)
-                processed_count += 1
-
-                # Optionally skip every other frame
-                if skip_frames:
-                    ret_skip, _ = cap.read()
-                    global_frame_index += 1
-                    if not ret_skip:
-                        break
-
-            if not frames_batch:
+            ret, frame = cap.read()
+            if not ret:
                 break
 
-            # Process frames concurrently
-            batch_results = list(executor.map(process_frame, frames_batch, frame_indices))
-            results.extend(batch_results)
-            
-            # Save progress every 'save_interval' processed frames
-            if processed_count % save_interval == 0:
-                df = pd.DataFrame(results)
-                # Optional smoothing at intermediate steps if desired
-                if smooth_window > 0:
-                    df = smooth_landmarks(df, window_size=smooth_window)
+            # If skip_frames is True, we keep the current frame, skip the next
+            if skip_frames:
+                ret_skip, _ = cap.read()
+                global_frame_index += 1
+                if not ret_skip:
+                    # End if there's no next frame to skip
+                    pass
 
-                df.to_csv(output_csv_path, index=False)
+            # Optionally resize
+            if resize_factor != 1.0:
+                frame = cv2.resize(frame, (new_width, new_height))
 
-                elapsed_time = time.time() - start_time
-                processing_rate = processed_count / elapsed_time if elapsed_time > 0 else 0
+            # Write this frame to the temp video
+            out_writer.write(frame)
 
-                # Estimate time to process 1 minute of video (60 * fps frames)
-                estimated_time_per_minute = (60 * fps) / processing_rate if processing_rate > 0 else float('inf')
+            # Record the mapping (processed_frame_count -> global_frame_index, time)
+            frame_map.append((
+                processed_frame_count,
+                global_frame_index,
+                global_frame_index / original_fps if original_fps > 0 else None
+            ))
 
-                print(f"Saved results at processed frame {processed_count} (global index: {global_frame_index})")
-                print(f"Speed: {processing_rate:.2f} frames/s | "
-                      f"Estimated time for 1 minute of video: {estimated_time_per_minute:.2f} s")
+            processed_frame_count += 1
+            global_frame_index += 1
 
-    cap.release()
+        out_writer.release()
+        cap.release()
 
-    # Final write
-    df = pd.DataFrame(results)
-    if smooth_window > 0:
-        df = smooth_landmarks(df, window_size=smooth_window)
+        read_elapsed = time.time() - start_time
+        print(f"Finished writing {processed_frame_count} frames to {temp_video_path}")
+        print(f"Time for reading/skipping/resizing: {read_elapsed:.2f} s")
 
-    df.to_csv(output_csv_path, index=False)
-    print(f"Processing complete. Final results saved to {output_csv_path}")
+        # ---------------------------
+        # Single DLC call
+        # ---------------------------
+        print("Running DLC analyze_videos (one-time call on combined_temp.mp4)...")
+        dlc_start_time = time.time()
+
+        deeplabcut.analyze_videos(
+            config_path,
+            [temp_video_path],
+            save_as_csv=True,
+            destfolder=temp_dir,
+            videotype=".mp4"
+        )
+
+        dlc_elapsed = time.time() - dlc_start_time
+        print(f"DLC analysis done. Time: {dlc_elapsed:.2f} s")
+
+        # ---------------------------
+        # Parse DLC CSV
+        # ---------------------------
+        csv_files = [f for f in os.listdir(temp_dir) if f.endswith(".csv")]
+        if not csv_files:
+            raise ValueError("No DLC results found. Check your DLC configuration.")
+
+        dlc_result_csv = os.path.join(temp_dir, csv_files[0])
+        dlc_df = pd.read_csv(dlc_result_csv, header=[1, 2])
+
+        # Build final data
+        final_data = []
+        for i in range(len(dlc_df)):
+            processed_idx, orig_idx, orig_time = frame_map[i]
+
+            # Adjust these bodypart names if your DLC labels differ
+            left_pupil_x   = dlc_df[("left_pupil",   "x")].iloc[i]
+            left_pupil_y   = dlc_df[("left_pupil",   "y")].iloc[i]
+            right_pupil_x  = dlc_df[("right_pupil",  "x")].iloc[i]
+            right_pupil_y  = dlc_df[("right_pupil",  "y")].iloc[i]
+            corner_left_x  = dlc_df[("corner_left",  "x")].iloc[i]
+            corner_left_y  = dlc_df[("corner_left",  "y")].iloc[i]
+            corner_right_x = dlc_df[("corner_right", "x")].iloc[i]
+            corner_right_y = dlc_df[("corner_right", "y")].iloc[i]
+
+            # If needed, you can add head pose estimation or other fields
+            roll_angle = None
+
+            final_data.append({
+                "frame": orig_idx,
+                "time": orig_time,
+                "left_pupil_x": left_pupil_x,
+                "left_pupil_y": left_pupil_y,
+                "right_pupil_x": right_pupil_x,
+                "right_pupil_y": right_pupil_y,
+                "corner_left_x": corner_left_x,
+                "corner_left_y": corner_left_y,
+                "corner_right_x": corner_right_x,
+                "corner_right_y": corner_right_y,
+                "roll_angle": roll_angle
+            })
+
+        final_df = pd.DataFrame(final_data)
+
+        # Optional rolling median smoothing for better accuracy
+        if smooth_window > 0:
+            final_df = smooth_landmarks_inplace(final_df, window_size=smooth_window)
+
+        final_df.to_csv(output_csv_path, index=False)
+        print(f"All done! Final CSV saved to {output_csv_path}")
 
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Process a video to extract eye landmarks using DeepLabCut, "
-            "concurrently analyzing frames while optionally skipping frames and resizing. "
-            "A rolling median smoothing can be applied to improve accuracy by reducing noise."
+            "Process a video for DeepLabCut in a single call. Optionally skip frames, "
+            "resize frames, and apply a rolling median smoothing for better accuracy."
         )
     )
     parser.add_argument("--video", required=True, help="Path to the input video")
     parser.add_argument("--config", required=True, help="Path to the DLC config.yaml file")
     parser.add_argument("--output", required=True, help="Output CSV file path")
-    parser.add_argument("--workers", type=int, default=2, help="Number of worker threads")
-    parser.add_argument("--skip_frames", action="store_true", help="Skip every other frame for speed")
+    parser.add_argument("--skip_frames", action="store_true",
+                        help="Skip every other frame (default: False for better accuracy)")
     parser.add_argument("--resize_factor", type=float, default=1.0,
-                        help="Resize factor for frames (e.g., 0.5 = half resolution). Use 1.0 for max accuracy.")
-    parser.add_argument("--save_interval", type=int, default=50,
-                        help="How many processed frames between CSV saves")
+                        help="Scale factor for frames (1.0 = original size for best accuracy)")
     parser.add_argument("--smooth_window", type=int, default=0,
-                        help="Apply rolling median smoothing with this window size (0 = no smoothing)")
+                        help="Rolling median window size for smoothing landmarks (0 = no smoothing)")
     args = parser.parse_args()
 
     process_video(
         video_path=args.video,
         config_path=args.config,
         output_csv_path=args.output,
-        workers=args.workers,
         skip_frames=args.skip_frames,
         resize_factor=args.resize_factor,
-        save_interval=args.save_interval,
         smooth_window=args.smooth_window
     )
 
