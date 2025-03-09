@@ -1,11 +1,13 @@
+Below is the reorganized version of your README. It maintains the same content while improving readability and visual structure.
+
+```markdown
 # PrimateVision
 
 ![Animated Eyes](https://github.com/user-attachments/assets/0f245b14-ec20-4a11-868a-ae207a7dfa1d)
 
-PrimateVision implements an eye–tracking system for Rhesus macaques (and humans) using **DeepLabCut (DLC)**. The system detects eye landmarks from video frames, maps raw eye coordinates to screen positions using a trained k–Nearest Neighbors (kNN) regression model, and analyzes gaze/fixation patterns during touchscreen interactions.
+PrimateVision implements an eye–tracking system for Rhesus macaques (and humans) using **DeepLabCut (DLC)**. It detects eye landmarks from video frames, maps raw eye coordinates to screen positions using a trained k–Nearest Neighbors (kNN) regression model, and analyzes gaze/fixation patterns during touchscreen interactions.
 
 > **Key Features:**
->
 > - **Offline Video Processing:** Analyze pre–recorded trial videos.
 > - **DeepLabCut–Based Landmark Detection:** Utilize a trained DLC model to extract key eye landmarks.
 > - **Gaze Mapping (kNN):** Transform raw eye coordinates to screen positions using a calibration-trained kNN regressor.
@@ -96,19 +98,19 @@ pip install --upgrade tensorflow_macos==2.12.0
    Specify the project name, add the video(s), and define keypoints (e.g., `left_pupil`, `right_pupil`, `corner_left`, `corner_right`).
 
 3. **Label Frames:**  
-   Label a diverse set of frames to cover various head poses and lighting conditions.
+   Label a diverse set of frames covering various head poses and lighting conditions.
 
 4. **Train and Evaluate:**  
    Train the network (consider a lightweight model such as `mobilenet_v2_1.0` for CPU-only systems) and evaluate its performance.
 
 5. **Update Configuration:**  
-   Verify that the scripts (e.g., `detect_eye.py`) correctly reference the DLC project’s `config.yaml`.
+   Ensure that the scripts (e.g., `detect_eye.py`) correctly reference the DLC project’s `config.yaml`.
 
 ---
 
 ## 4. Pipeline Overview
 
-The PrimateVision pipeline follows these steps:
+The PrimateVision pipeline includes the following steps:
 
 1. **Calibration:**  
    Extract eye landmarks from a calibration video.
@@ -173,7 +175,7 @@ python src/process_video.py --video /path/to/experimental_video.mp4 --config /pa
 python src/analyze_gaze_knn.py --landmarks_csv landmarks_output.csv --model data/trained_model/knn_mapping_model.joblib --screen_width 1920 --screen_height 1080 --n_cols 3 --n_rows 3 --output_heatmap gaze_heatmap.png --output_sections section_durations.csv
 ```
 
-This command converts eye landmarks into screen coordinates, segments the screen into regions, and outputs a heatmap and summary CSV.
+This command converts eye landmarks into screen coordinates, segments the screen into regions, and outputs a heatmap along with a summary CSV.
 
 ---
 
@@ -186,13 +188,7 @@ This command converts eye landmarks into screen coordinates, segments the screen
   GitHub Actions is configured to run tests and lint checks on every push and pull request.
   
 - **Contribution Guidelines:**  
-  Refer to [CONTRIBUTING.md](CONTRIBUTING.md) for details on submitting pull requests and reporting issues.
-  
-- **Docker Support:**  
-  A Dockerfile is available for a containerized setup if desired.
-  
-- **Changelog:**  
-  Review [CHANGELOG.md](CHANGELOG.md) for information on project updates and releases.
+  See [CONTRIBUTING.md](CONTRIBUTING.md) for details on submitting pull requests and reporting issues.
 
 ---
 
@@ -206,9 +202,11 @@ This command converts eye landmarks into screen coordinates, segments the screen
   Develop an online calibration method for real-time mapping updates.
 - **Enhanced Visualization:**  
   Create interactive dashboards or real-time displays for dynamic gaze analysis.
+- **Add Docker Support:**
+  Add a Dockerfile for containerized setup.
 
 ---
 
 ## 9. License
 
-This project is licensed under the [GPL-3.0 License](LICENSE). Please see the license file for details.
+This project is licensed under the [GPL-3.0 License](LICENSE). Please refer to the license file for details.
