@@ -132,6 +132,11 @@ Run the processing script with multiple workers:
 python src/process_video.py --video /path/to/calibration_video.mp4 --config /path/to/dlc_config.yaml --output landmarks_output.csv --workers 4
 ```
 
+If you want to skip every other frame for increased speed, add the following to the end of the above command:
+```bash
+--skip_frames
+```
+
 *Example:*
 
 ```bash
