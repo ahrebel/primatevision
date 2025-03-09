@@ -5,7 +5,7 @@
 PrimateVision implements an eye–tracking system for Rhesus macaques (and humans) using **DeepLabCut (DLC)**. It detects eye landmarks from video frames, maps raw eye coordinates to screen positions using a trained k–Nearest Neighbors (kNN) regression model, and analyzes gaze/fixation patterns during touchscreen interactions.
 
 > **Key Features:**
-> - **Offline Video Processing:** Analyze pre–recorded trial videos.  
+> - **Offline Video Processing:** Analyze pre–recorded trial videos in a single DLC call.  
 > - **DeepLabCut–Based Landmark Detection:** Utilize a trained DLC model to extract key eye landmarks.  
 > - **Gaze Mapping (kNN):** Transform raw eye coordinates to screen positions using a calibration-trained kNN regressor.  
 > - **Visualization:** Generate heatmaps and CSV summaries showing time spent in each screen region.  
@@ -65,21 +65,20 @@ Install additional DeepLabCut dependencies:
 pip install deeplabcut pyyaml tensorflow tensorpack tf-slim 'deeplabcut[gui]'
 ```
 
-*If a `ModuleNotFoundError: No module named 'keras.legacy_tf_layers'` occurs, run:*
-
-```bash
-pip install --upgrade tensorflow_macos==2.12.0
-```
+> *If a `ModuleNotFoundError: No module named 'keras.legacy_tf_layers'` occurs, run:*
+> ```bash
+> pip install --upgrade tensorflow_macos==2.12.0
+> ```
 
 ---
 
 ## 2. Data Preparation
 
 - **Videos:**  
-  Place trial videos (e.g., `1.mp4`, `2.mp4`, etc.) in the `videos/input/` folder.
+  Place trial videos (e.g., `1.mp4`, `2.mp4`) in the `videos/input/` folder.
 
 - **Touch/Click Event Files (Optional):**  
-  Save any calibration data (e.g., from touchscreen clicks) as CSV files with columns such as `time, screen_x, screen_y`.  
+  If you have calibration data from touchscreens, store them as CSV files (e.g., `time, screen_x, screen_y`).
 
 ---
 
@@ -92,116 +91,89 @@ pip install --upgrade tensorflow_macos==2.12.0
    ```
 
 2. **Create a New Project:**  
-   Specify the project name, add the video(s), and define keypoints (e.g., `left_pupil`, `right_pupil`, `corner_left`, `corner_right`).
+   Enter the project name, add the video(s), and define your keypoints (e.g., `left_pupil`, `right_pupil`, `corner_left`, `corner_right`).
 
 3. **Label Frames:**  
-   Label a diverse set of frames covering various head poses and lighting conditions.
+   Label a diverse set of frames covering various lighting conditions and head poses.
 
 4. **Train and Evaluate:**  
-   Train the network (consider a lightweight model such as `mobilenet_v2_1.0` for CPU-only systems) and evaluate its performance.
+   Train the network (e.g., `mobilenet_v2_1.0` for CPU-only setups) and evaluate its performance.
 
 5. **Update Configuration:**  
-   Ensure that scripts like `detect_eye.py` reference the correct DLC project config (`config.yaml`).
+   Make sure your scripts (e.g., `detect_eye.py`) point to the correct DLC config (`config.yaml`).
 
 ---
 
 ## 4. Pipeline Overview
 
-The PrimateVision pipeline includes the following steps:
+PrimateVision follows these major steps:
 
 1. **Calibration:**  
    Extract eye landmarks from a calibration video.
 2. **(Optional) Data Merging:**  
-   Combine gaze data with touch/click events to create a comprehensive calibration CSV.
+   Combine gaze data with touchscreen logs to form a calibration CSV.
 3. **Mapping Model Training:**  
-   Train a kNN regression model to convert raw eye coordinates to screen coordinates.
+   Train a kNN regression model to map raw eye coordinates to screen coordinates.
 4. **Experimental Processing:**  
    Process experimental videos to extract raw landmarks.
 5. **Gaze Analysis:**  
-   Apply the trained kNN model to compute screen positions, segment the screen into regions, and calculate fixation durations.
+   Apply the kNN model to compute screen positions, divide the screen into regions, and calculate fixation durations.
 
 ---
 
 ## 5. Calibration & Processing
 
-Use the `process_video.py` script to extract eye landmarks from your videos. This script supports:
+### Single-Call Video Processing
 
-- **Concurrent Processing (`--workers`)**  
-- **Optional Frame Skipping (`--skip_frames`)**  
-- **Optional Frame Resizing (`--resize_factor`)**  
-- **Periodic Saving (`--save_interval`)**  
-- **Rolling Median Smoothing (`--smooth_window`)**  
+Use `process_video.py` to create a **single temporary video** containing the frames you want to analyze. The script then calls DLC **once**, parsing the resulting CSV to produce a final landmarks file. This approach reduces overhead and can improve accuracy by avoiding repeated DLC initialization.
 
-Below are some common usage examples.
+**Key Options:**
+- **`--skip_frames`**: Skip every other frame for speed (disabled by default).  
+- **`--resize_factor`**: Downscale frames (e.g., `0.5` for half resolution). Default is `1.0` for full accuracy.  
+- **`--smooth_window`**: Apply a rolling median filter to final landmark coordinates to reduce jitter (e.g., `3`).
 
-### Basic Example (Full Accuracy, No Skipping/Resizing)
+#### Example: Full Accuracy (No Skipping, Full Res, No Smoothing)
+
+```bash
+python src/process_video.py \
+  --video /path/to/calibration_video.mp4 \
+  --config /path/to/dlc_config.yaml \
+  --output /path/to/landmarks_output.csv
+```
+
+#### Example: Skipping & Resizing
 
 ```bash
 python src/process_video.py \
   --video /path/to/calibration_video.mp4 \
   --config /path/to/dlc_config.yaml \
   --output /path/to/landmarks_output.csv \
-  --workers 4
-```
-
-### Skipping Frames for Speed
-
-```bash
-python src/process_video.py \
-  --video /path/to/video.mp4 \
-  --config /path/to/dlc_config.yaml \
-  --output /path/to/landmarks_output.csv \
-  --workers 4 \
-  --skip_frames
-```
-*Skips every other frame, cutting processing time but reducing temporal resolution.*
-
-### Resizing Frames
-
-```bash
-python src/process_video.py \
-  --video /path/to/video.mp4 \
-  --config /path/to/dlc_config.yaml \
-  --output /path/to/landmarks_output.csv \
-  --workers 4 \
+  --skip_frames \
   --resize_factor 0.5
 ```
-*Downsamples frames to half resolution for faster CPU performance. (1.0 = original size.)*
+*(Speeds up processing but reduces resolution and temporal detail.)*
 
-### Smoothing Landmarks
+#### Example: Adding Smoothing
 
 ```bash
 python src/process_video.py \
-  --video /path/to/video.mp4 \
+  --video /path/to/calibration_video.mp4 \
   --config /path/to/dlc_config.yaml \
   --output /path/to/landmarks_output.csv \
-  --workers 4 \
   --smooth_window 3
 ```
-*Applies a rolling median filter over a 3-frame window to reduce jitter/outliers in landmark coordinates.*
-
-### Adjusting Save Interval
-
-```bash
-python src/process_video.py \
-  --video /path/to/video.mp4 \
-  --config /path/to/dlc_config.yaml \
-  --output /path/to/landmarks_output.csv \
-  --workers 4 \
-  --save_interval 50
-```
-*Saves intermediate results every 50 processed frames instead of the default.*
+*(Applies a rolling median filter over 3 frames to reduce noise in the final CSV.)*
 
 ---
 
-### Merge Gaze Data with Click Data (Optional)
+### (Optional) Merge Gaze Data with Click Data
 
-If you have additional calibration data (e.g., touchscreen events), merge them with the gaze CSV:
+If you have touchscreen events for calibration, merge them:
 
 ```bash
 python src/combine_gaze_click.py \
   --gaze_csv landmarks_output.csv \
-  --click_file /path/to/your_click_file.csv \
+  --click_file /path/to/click_data.csv \
   --output_csv calibration_data_for_training.csv \
   --max_time_diff 0.1
 ```
@@ -223,17 +195,18 @@ python src/train_knn_mapping.py \
 
 ### Process Experimental Videos
 
-Use the same `process_video.py` script for your experimental videos:
+Repeat the **single-call** approach for experimental videos:
 
 ```bash
 python src/process_video.py \
   --video /path/to/experimental_video.mp4 \
   --config /path/to/dlc_config.yaml \
-  --output /path/to/landmarks_output.csv \
-  --workers 4
+  --output /path/to/landmarks_output.csv
 ```
 
-### Analyze Gaze and Generate Visualizations
+*(Adjust options like `--skip_frames`, `--resize_factor`, or `--smooth_window` as needed.)*
+
+### Analyze Gaze and Generate Heatmaps
 
 ```bash
 python src/analyze_gaze_knn.py \
@@ -247,44 +220,44 @@ python src/analyze_gaze_knn.py \
   --output_sections section_durations.csv
 ```
 
-This command:
-1. Loads your landmarks CSV.  
-2. Applies the kNN model to map eye coordinates → screen coordinates.  
-3. Segments the screen (e.g., 1920×1080) into a 3×3 grid.  
-4. Computes the time spent in each grid cell.  
-5. Outputs a heatmap image and a CSV summarizing fixation durations.
+This script:
+1. Loads the landmarks CSV.  
+2. Maps eye coordinates → screen coordinates via the kNN model.  
+3. Divides the screen (e.g., 1920×1080) into a grid (3×3).  
+4. Computes time spent in each grid cell.  
+5. Saves a heatmap image and a CSV summarizing fixation durations.
 
 ---
 
 ## 7. Testing, CI, and Contribution Guidelines
 
 - **Testing:**  
-  Unit and integration tests ensure reliable performance for calibration, kNN mapping, and other key components.
-  
+  Unit and integration tests validate calibration, kNN mapping, and other pipeline components.
+
 - **Continuous Integration (CI):**  
   GitHub Actions runs tests and lint checks on every push/pull request.
 
 - **Contribution Guidelines:**  
-  Refer to [CONTRIBUTING.md](CONTRIBUTING.md) for details on pull requests, reporting issues, and our code of conduct.
+  Refer to [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on pull requests, issues, and our code of conduct.
 
 ---
 
 ## 8. Future Improvements
 
 - **Advanced Feature Engineering:**  
-  Investigate additional features (e.g., inter-landmark distances, angles) to refine mapping accuracy.
+  Investigate additional features (e.g., inter-landmark distances) to improve mapping accuracy.
 - **Model Comparisons:**  
-  Test alternative regression models (e.g., SVR, Random Forests) through cross-validation.
+  Experiment with alternative regression models (e.g., SVR, Random Forests) via cross-validation.
 - **Adaptive Calibration:**  
-  Develop real-time or online calibration methods for dynamic mapping updates.
+  Develop real-time calibration methods for dynamic gaze mapping.
 - **Enhanced Visualization:**  
-  Implement interactive dashboards or real-time displays for dynamic gaze analysis.
+  Implement interactive dashboards or real-time displays for gaze data.
 - **Docker Support:**  
-  Provide a Dockerfile for containerized setups.
+  Provide a Dockerfile for a fully containerized setup.
 
 ---
 
 ## 9. License
 
 This project is licensed under the [GPL-3.0 License](LICENSE).  
-Please see the license file for details regarding usage and distribution.
+See the license file for details regarding usage and distribution.
