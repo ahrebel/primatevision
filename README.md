@@ -226,6 +226,10 @@ This script:
 3. Divides the screen (e.g., 1920×1080) into a grid (3×3).  
 4. Computes time spent in each grid cell.  
 5. Saves a heatmap image and a CSV summarizing fixation durations.
+   
+
+![gaze_heatmap](https://github.com/user-attachments/assets/e195b9da-d5e1-4c11-a5d8-59ffae3004e7)
+
 
 ---
 
