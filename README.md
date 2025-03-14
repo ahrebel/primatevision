@@ -212,10 +212,10 @@ python src/process_video.py \
 python src/analyze_gaze_knn.py \
   --landmarks_csv /path/to/landmarks_output.csv \
   --model data/trained_model/knn_mapping_model.joblib \
-  --screen_width 1920 \
-  --screen_height 1080 \
-  --n_cols 3 \
-  --n_rows 3 \
+  --screen_width 1080 \
+  --screen_height 768 \
+  --n_cols 9 \
+  --n_rows 9 \
   --output_heatmap gaze_heatmap.png \
   --output_sections section_durations.csv
 ```
@@ -226,10 +226,6 @@ This script:
 3. Divides the screen (e.g., 1920×1080) into a grid (3×3).  
 4. Computes time spent in each grid cell.  
 5. Saves a heatmap image and a CSV summarizing fixation durations.
-   
-
-![gaze_heatmap](https://github.com/user-attachments/assets/e195b9da-d5e1-4c11-a5d8-59ffae3004e7)
-
 
 ---
 
